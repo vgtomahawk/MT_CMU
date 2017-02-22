@@ -8,11 +8,12 @@ import argparse
 import numpy as np
 import datetime
 import nltk
+import pickle
 
 #Config Definition
 EMB_SIZE=128
 LAYER_DEPTH=1
-BATCH_SIZE=8
+BATCH_SIZE=16
 HIDDEN_SIZE=128
 NUM_EPOCHS=20
 START=0
@@ -215,17 +216,20 @@ wids_de=defaultdict(lambda: len(wids_de))
 train_sentences_en=readData.read_corpus(wids_en,mode="train",update_dict=True,min_frequency=MIN_EN_FREQUENCY,language="en")
 train_sentences_de=readData.read_corpus(wids_de,mode="train",update_dict=True,min_frequency=MIN_DE_FREQUENCY,language="de")
 
-dicFile=open("dictionary_en.txt","w")
+enDictionaryFile="Models/"+"en-dict_"+str(MIN_EN_FREQUENCY)+".txt" 
+deDictionaryFile="Models/"+"de-dict_"+str(MIN_DE_FREQUENCY)+".txt"
+
+dicFile=open(enDictionaryFile,"w")
 print len(wids_en)
 for key in wids_en:
-    dicFile.write(key+","+str(wids_en[key])+"\n")
+    dicFile.write(key+" "+str(wids_en[key])+"\n")
 dicFile.close()
 print "Writing EN"
 
-dicFile=open("dictionary_de.txt","w")
+dicFile=open(deDictionaryFile,"w")
 print len(wids_de)
 for key in wids_en:
-    dicFile.write(key+","+str(wids_de[key])+"\n")
+    dicFile.write(key+" "+str(wids_de[key])+"\n")
 dicFile.close()
 print "Writing DE"
 
@@ -235,7 +239,7 @@ valid_sentences_de=readData.read_corpus(wids_de,mode="valid",update_dict=False,m
 train_sentences=zip(train_sentences_de,train_sentences_en)
 valid_sentences=zip(valid_sentences_de,valid_sentences_en)
 
-train_sentences=train_sentences[:5000]
+train_sentences=train_sentences[:40000]
 valid_sentences=valid_sentences
 
 print "Number of Training Sentences:",len(train_sentences)
@@ -293,13 +297,18 @@ decoder_params["bias"]=model.add_parameters((VOCAB_SIZE_EN))
 trainer=dy.AdamTrainer(model)
 
 totalSentences=0
-print "Start Time",datetime.datetime.now()
+sentencesCovered=totalSentences/3200
+
+startTime=datetime.datetime.now()
+print "Start Time",startTime
 for epochId in xrange(NUM_EPOCHS):    
     random.shuffle(train_batches)
     for batchId,batch in enumerate(train_batches):
         if len(batch)>1:
             totalSentences+=len(batch)
-            #print "Sentences covered:",totalSentences
+            if totalSentences/3200>sentencesCovered:
+                sentencesCovered=totalSentences/3200
+                print "Sentences covered:",totalSentences,"Current Time",datetime.datetime.now()
             sentence_de=[sentence[0] for sentence in batch]
             sentence_en=[sentence[1] for sentence in batch]
             loss,words=do_one_batch(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,sentence_en)
@@ -335,5 +344,16 @@ for epochId in xrange(NUM_EPOCHS):
     print "Validation perplexity after epoch:",epochId,"Perplexity:",perplexity,"Time:",datetime.datetime.now()             
     
     trainer.update_epoch(1.0)
+    
+    #Save Model
+    modelFile="Models/"+"barebones_enc_dec_batched"+"_"+str(EMB_SIZE)+"_"+str(LAYER_DEPTH)+"_"+str(HIDDEN_SIZE)+"_"+str(MIN_EN_FREQUENCY)+"_"+str(MIN_DE_FREQUENCY)+"_"+str(startTime)
+    model.save(modelFile,[encoder,revcoder,encoder_params["lookup"],decoder_params["lookup"],decoder_params["R"],decoder_params["bias"]])
+      
+
+    #Generate Test Output
+
+    #Generate Blind Output
+
+    #Run MOSES script to get BLEU
 
 #train_batch(model,encoder,revcoder,decoder,encoder_params,decoder_params,train_sentences,valid_sentences,NUM_EPOCHS,"Models/"+"Attentional"+"_"+str(HIDDEN_SIZE)+"_"+"Uni")
