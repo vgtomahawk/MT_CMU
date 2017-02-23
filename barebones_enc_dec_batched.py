@@ -11,17 +11,18 @@ import nltk
 import pickle
 
 #Config Definition
-EMB_SIZE=128
+EMB_SIZE=256
 LAYER_DEPTH=1
-BATCH_SIZE=16
-HIDDEN_SIZE=128
-NUM_EPOCHS=20
+BATCH_SIZE=32
+HIDDEN_SIZE=400
+NUM_EPOCHS=5
 START=0
 UNK=1
 STOP=2
 GARBAGE=3
 MIN_EN_FREQUENCY=1
 MIN_DE_FREQUENCY=1
+MAX_TRAIN_SENTENCES=40000
 
 def greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,reverse_dict):
     dy.renew_cg()
@@ -311,7 +312,7 @@ def main():
     train_sentences=zip(train_sentences_de,train_sentences_en)
     valid_sentences=zip(valid_sentences_de,valid_sentences_en)
 
-    train_sentences=train_sentences[:100]
+    train_sentences=train_sentences[:MAX_TRAIN_SENTENCES]
     valid_sentences=valid_sentences
 
     print "Number of Training Sentences:",len(train_sentences)
@@ -418,10 +419,10 @@ def main():
         trainer.update_epoch(1.0)
         
         #Save Model
-        modelFile="Models/"+"barebones_enc_dec_batched"+"_"+str(EMB_SIZE)+"_"+str(LAYER_DEPTH)+"_"+str(HIDDEN_SIZE)+"_"+str(MIN_EN_FREQUENCY)+"_"+str(MIN_DE_FREQUENCY)
+        modelFile="Models/"+"barebones_enc_dec_batched"+"_"+str(datetime.datetime.now())+"_"+str(EMB_SIZE)+"_"+str(LAYER_DEPTH)+"_"+str(HIDDEN_SIZE)+"_"+str(MIN_EN_FREQUENCY)+"_"+str(MIN_DE_FREQUENCY)
         model.save(modelFile,[encoder,revcoder,decoder,encoder_params["lookup"],decoder_params["lookup"],decoder_params["R"],decoder_params["bias"]])
 
-        return wids_de,wids_en,modelFile
+    return wids_de,wids_en,modelFile
 
 def reverseDictionary(dictionary):
     reverse_dictionary={}
@@ -454,37 +455,46 @@ def metaMain(modelFile=None,wids_de=None,wids_en=None):
     decoder_params={}
     (encoder,revcoder,decoder,encoder_params["lookup"],decoder_params["lookup"],decoder_params["R"],decoder_params["bias"])=model.load(modelFile)
 
+    print "Reversing dictionaries"
     #Reverse dictionaries
     reverse_wids_en=reverseDictionary(wids_en)
     reverse_wids_de=reverseDictionary(wids_de)
 
+    print "Reading Test Data"
     test_sentences_en=readData.read_corpus(wids_en,mode="test",update_dict=False,min_frequency=MIN_EN_FREQUENCY,language="en")
     test_sentences_de=readData.read_corpus(wids_de,mode="test",update_dict=False,min_frequency=MIN_DE_FREQUENCY,language="de")
     test_sentences=zip(test_sentences_de,test_sentences_en)
 
+    print "Reading blind German"
     blind_sentences_de=readData.read_corpus(wids_de,mode="blind",update_dict=False,min_frequency=MIN_EN_FREQUENCY,language="de")
 
     testPerplexity=computePerplexity(model,encoder,revcoder,decoder,encoder_params,decoder_params,test_sentences)
     print "Test perplexity,",testPerplexity
     
-    outFile=modelFile+"_testOutput"
-    refFile=modelFile+"_testRef"
+    outFileName=modelFile+"_testOutput"+"_"+str(datetime.datetime.now())
+    refFileName=modelFile+"_testRef"+"_"+str(datetime.datetime.now())
+    outFile=open(outFileName,"w")
+    refFile=open(refFileName,"w")
     bleuOutputFile=modelFile+"_BLEU"
 
+    print "Decoding Test Sentences"
     for test_sentence in test_sentences:
         sentence_en_hat,interpreted_test_sentence_en_hat,loss=greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,test_sentence[0],reverse_wids_en)
-        print interpreted_test_sentence_en_hat
+        #print interpreted_test_sentence_en_hat
         outFile.write(interpreted_test_sentence_en_hat+"\n")
-        interpreted_test_sentence_en=" ".join([wids_en[x] for x in test_sentence[1]])
-        refFile.write(+"\n")
+        interpreted_test_sentence_en=" ".join([reverse_wids_en[x] for x in test_sentence[1]])
+        refFile.write(interpreted_test_sentence_en+"\n")
 
     outFile.close()
     refFile.close()
 
-    import shlex
-    import subprocess
-    with open(bleuOutputFile,"wb",0) as file:
-        subprocess.call(["perl","multi-bleu.perl","-lc",refFile,"<",outFile],stdout=file)
+    print "wrote Data"
+    print "Computing perplexity"
+    #import shlex
+    #import subprocess
+    #subprocess.call(["perl","multi-bleu.perl","-lc",refFileName,"<",outFileName],stdout=stdout)
+    print "Over"
+    return modelFile
 
 if __name__=="__main__":
     modelFile=None
