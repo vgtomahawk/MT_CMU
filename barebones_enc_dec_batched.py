@@ -11,18 +11,18 @@ import nltk
 import pickle
 
 #Config Definition
-EMB_SIZE=256
+EMB_SIZE=128
 LAYER_DEPTH=1
 BATCH_SIZE=32
-HIDDEN_SIZE=400
-NUM_EPOCHS=5
+HIDDEN_SIZE=128
+NUM_EPOCHS=10
 START=0
 UNK=1
 STOP=2
 GARBAGE=3
 MIN_EN_FREQUENCY=1
 MIN_DE_FREQUENCY=1
-MAX_TRAIN_SENTENCES=40000
+MAX_TRAIN_SENTENCES=10000
 
 def greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,reverse_dict):
     dy.renew_cg()
@@ -305,12 +305,19 @@ def main():
     dicFile.close()
     print "Writing DE"
 
+    reverse_wids_en=reverseDictionary(wids_en)
+    reverse_wids_de=reverseDictionary(wids_de)
 
     valid_sentences_en=readData.read_corpus(wids_en,mode="valid",update_dict=False,min_frequency=MIN_EN_FREQUENCY,language="en")
     valid_sentences_de=readData.read_corpus(wids_de,mode="valid",update_dict=False,min_frequency=MIN_DE_FREQUENCY,language="de")
 
     train_sentences=zip(train_sentences_de,train_sentences_en)
     valid_sentences=zip(valid_sentences_de,valid_sentences_en)
+
+    for train_sentence in train_sentences[:10]:
+        print "German:",[reverse_wids_de[x] for x in train_sentence[0]]
+        print "English:",[reverse_wids_en[x] for x in train_sentence[1]]
+
 
     train_sentences=train_sentences[:MAX_TRAIN_SENTENCES]
     valid_sentences=valid_sentences
@@ -367,7 +374,7 @@ def main():
     decoder_params["R"]=model.add_parameters((VOCAB_SIZE_EN,HIDDEN_SIZE))
     decoder_params["bias"]=model.add_parameters((VOCAB_SIZE_EN))
 
-    trainer=dy.AdamTrainer(model)
+    trainer=dy.SimpleSGDTrainer(model)
 
     totalSentences=0
     sentencesCovered=totalSentences/3200
