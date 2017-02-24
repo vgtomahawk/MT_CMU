@@ -11,18 +11,18 @@ import nltk
 import pickle
 
 #Config Definition
-EMB_SIZE=128
+EMB_SIZE=256
 LAYER_DEPTH=1
 BATCH_SIZE=32
-HIDDEN_SIZE=128
-NUM_EPOCHS=10
+HIDDEN_SIZE=512
+NUM_EPOCHS=7
 START=0
 UNK=1
 STOP=2
 GARBAGE=3
 MIN_EN_FREQUENCY=1
 MIN_DE_FREQUENCY=1
-MAX_TRAIN_SENTENCES=10000
+MAX_TRAIN_SENTENCES=100000
 
 def greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,reverse_dict):
     dy.renew_cg()
@@ -87,8 +87,13 @@ def greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,se
         o_0=o_t
         c_0=c_t
         alpha_0=alpha_t
-
+    
     loss=dy.esum(losses)
+
+    if len(sentence_en)>0 and sentence_en[-1]==STOP:
+        sentence_en=sentence_en[:-1] 
+
+
 
     interpreted_sentence_en=" ".join([reverse_dict[en] for en in sentence_en])
     return sentence_en,interpreted_sentence_en,loss
@@ -374,7 +379,7 @@ def main():
     decoder_params["R"]=model.add_parameters((VOCAB_SIZE_EN,HIDDEN_SIZE))
     decoder_params["bias"]=model.add_parameters((VOCAB_SIZE_EN))
 
-    trainer=dy.SimpleSGDTrainer(model)
+    trainer=dy.AdamTrainer(model)
 
     totalSentences=0
     sentencesCovered=totalSentences/3200
@@ -479,9 +484,11 @@ def metaMain(modelFile=None,wids_de=None,wids_en=None):
     print "Test perplexity,",testPerplexity
     
     outFileName=modelFile+"_testOutput"+"_"+str(datetime.datetime.now())
+    blindFileName=modelFile+"_blindOutput"+"_"+str(datetime.datetime.now())
     refFileName=modelFile+"_testRef"+"_"+str(datetime.datetime.now())
     outFile=open(outFileName,"w")
     refFile=open(refFileName,"w")
+    blindFile=open(blindFileName,"w")
     bleuOutputFile=modelFile+"_BLEU"
 
     print "Decoding Test Sentences"
@@ -495,8 +502,16 @@ def metaMain(modelFile=None,wids_de=None,wids_en=None):
     outFile.close()
     refFile.close()
 
-    print "wrote Data"
-    print "Computing perplexity"
+    print "wrote test data"
+
+    print "Decoding Blind Sentences"
+    for blind_sentence_de in blind_sentences_de:
+        sentence_en_hat,interpreted_test_sentence_en_hat,loss=greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,blind_sentence_de,reverse_wids_en)
+        blindFile.write(interpreted_test_sentence_en_hat+"\n")
+ 
+    blindFile.close()
+    print "Finished Decoding Blind Sentences"
+    #print "Computing perplexity"
     #import shlex
     #import subprocess
     #subprocess.call(["perl","multi-bleu.perl","-lc",refFileName,"<",outFileName],stdout=stdout)
