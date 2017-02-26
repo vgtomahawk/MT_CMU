@@ -9,7 +9,6 @@ import numpy as np
 import datetime
 import nltk
 import pickle
-import copy
 
 #Config Definition
 EMB_SIZE=192
@@ -24,97 +23,6 @@ GARBAGE=3
 MIN_EN_FREQUENCY=1
 MIN_DE_FREQUENCY=1
 MAX_TRAIN_SENTENCES=100000
-
-def topk(vector,k):
-    topklist=[]
-    while len(topklist)<k:
-        top=np.argmax(vector)
-        topklist.append(top)
-        vector[top]=-np.inf
-
-    return topklist
-
-def beamDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,reverse_dict,k=10,concatenative=False):
-    dy.renew_cg()
-    encoder_lookup=encoder_params["lookup"]
-    decoder_lookup=decoder_params["lookup"]
-    R=dy.parameter(decoder_params["R"])
-    bias=dy.parameter(decoder_params["bias"])
-
-    sentence_de_forward=[START,]+sentence_de
-    sentence_de_reverse=sentence_de[::-1]+[START,]
-
-    s=encoder.initial_state()
-    inputs=[dy.lookup(encoder_lookup,de) for de in sentence_de_forward]
-    states=s.add_inputs(inputs)
-    encoder_outputs=[s.output() for s in states]
-
-    s_reverse=revcoder.initial_state()
-    inputs=[dy.lookup(encoder_lookup,de) for de in sentence_de_reverse]
-    states_reverse=s_reverse.add_inputs(inputs)
-    revcoder_outputs=[s.output() for s in states_reverse]
-
-    final_coding_output=encoder_outputs[-1]+revcoder_outputs[-1]
-    final_state=states[-1].s()
-    final_state_reverse=states_reverse[-1].s()
-    final_coding_state=((final_state_reverse[0]+final_state[0]),(final_state_reverse[1]+final_state[1]))
-    final_combined_outputs=[revcoder_output+encoder_output for revcoder_output,encoder_output in zip(revcoder_outputs[::-1],encoder_outputs)]
-
-    s_init=decoder.initial_state().set_s(final_state_reverse)
-    o_init=s_init.output() 
-    alpha_init=dy.softmax(dy.concatenate([dy.dot_product(o_init,final_combined_output) for final_combined_output in final_combined_outputs]))
-    c_init=attend_vector(final_combined_outputs,alpha_init)
-
-    
-    s_0=s_init
-    o_0=o_init
-    alpha_0=alpha_init
-    c_0=c_init
-    
-    finishedSequences=[]
-    currentSequences=[(s_0,c_0,o_0,[],0.0),]
-
-    #print "Beam Search Start"
-    while len(finishedSequences)<2*k:
-        candidates=[]
-        for currentSequence in currentSequences:
-            scores=None
-            if concatenative:
-                scores=dy.affine_transform([bias,R,dy.concatenate([currentSequence[2],currentSequence[1]])])
-            else:
-                scores=dy.affine_transform([bias,R,currentSequence[2]])
-            topkTokens=topk(scores.npvalue(),k)
-            for topkToken in topkTokens:
-                loss=(dy.pickneglogsoftmax(scores,topkToken)).value()
-                candidate_i_t=dy.concatenate([dy.lookup(decoder_lookup,topkToken),currentSequence[1]])
-                candidate_s_t=currentSequence[0].add_input(candidate_i_t)
-                candidate_o_t=candidate_s_t.output()
-                candidate_alpha_t=dy.softmax(dy.concatenate([dy.dot_product(candidate_o_t,final_combined_output) for final_combined_output in final_combined_outputs]))
-                candidate_c_t=attend_vector(final_combined_outputs,candidate_alpha_t)
-                candidate_loss=currentSequence[4]+loss
-                candidate_sequence=copy.deepcopy(currentSequence[3])
-                candidate_sequence.append(topkToken)
-                candidate=(candidate_s_t,candidate_c_t,candidate_o_t,candidate_sequence,candidate_loss)
-                if topkToken==STOP or len(candidate_sequence)>2*len(sentence_de)+10:
-                    if len(candidate_sequence)>3 or len(candidate_sequence)>=len(sentence_de):
-                        finishedSequences.append(candidate)
-                else:
-                    candidates.append(candidate)
-        #Sort candidates by loss, lesser loss is better
-        candidates.sort(key = lambda x: x[4])
-        currentSequences=candidates[:k]
-
-    #print "Beam Search End"
-
-    finishedSequences.sort(key = lambda x:x[4])
-    sentence_en=finishedSequences[0][3]     
-    if len(sentence_en)>0 and sentence_en[-1]==STOP:
-        sentence_en=sentence_en[:-1] 
-
-    interpreted_sentence_en=" ".join([reverse_dict[en] for en in sentence_en])
-    return sentence_en,interpreted_sentence_en,loss
-
-
 
 def greedyDecodeAvoidUNK(model,encoder,revcoder,decoder,encoder_params,decoder_params,sentence_de,reverse_dict):
     dy.renew_cg()
@@ -161,7 +69,7 @@ def greedyDecodeAvoidUNK(model,encoder,revcoder,decoder,encoder_params,decoder_p
     while currentToken!=STOP and len(sentence_en)<2*len(sentence_de)+10:
         #Calculate loss and append to the losses array
         #scores=R*o_0+bias
-        scores=dy.affine_transform([bias,R,o_0])
+        scores=dy.affine_transform([bias,R,dy.concatenate([o_0,c_0])])
         probs=dy.softmax(scores)
         probs=probs.npvalue()
         probs[UNK]*=math.pow(10,-4)
@@ -240,7 +148,7 @@ def greedyDecode(model,encoder,revcoder,decoder,encoder_params,decoder_params,se
     while currentToken!=STOP and len(sentence_en)<2*len(sentence_de)+10:
         #Calculate loss and append to the losses array
         #scores=R*o_0+bias
-        scores=dy.affine_transform([bias,R,o_0])
+        scores=dy.affine_transform([bias,R,dy.concatenate([o_0,c_0])])
         currentToken=np.argmax(scores.npvalue())
         loss=dy.pickneglogsoftmax(scores,currentToken)
         losses.append(loss)
@@ -333,7 +241,7 @@ def do_one_example(model,encoder,revcoder,decoder,encoder_params,decoder_params,
     for en in sentence_en:
         #Calculate loss and append to the losses array
         #scores=R*o_0+bias
-        scores=dy.affine_transform([bias,R,o_0])
+        scores=dy.affine_transform([bias,R,dy.concatenate([o_0,c_0])])
 
         loss=dy.pickneglogsoftmax(scores,en)
         losses.append(loss)
@@ -423,7 +331,7 @@ def do_one_batch(model,encoder,revcoder,decoder,encoder_params,decoder_params,se
         #Calculate loss and append to the losses array
         #scores=R*o_0+bias
         #scores=dy.affine_transform([bias,R,o_0])
-        scores=dy.affine_transform([bias,R,o_0])
+        scores=dy.affine_transform([bias,R,dy.concatenate([o_0,c_0])])
 
         loss=dy.pickneglogsoftmax_batch(scores,en)
         
@@ -547,7 +455,7 @@ def main():
 
     decoder_params={}
     decoder_params["lookup"]=model.add_lookup_parameters((VOCAB_SIZE_EN,EMB_SIZE))
-    decoder_params["R"]=model.add_parameters((VOCAB_SIZE_EN,HIDDEN_SIZE))
+    decoder_params["R"]=model.add_parameters((VOCAB_SIZE_EN,2*HIDDEN_SIZE))
     decoder_params["bias"]=model.add_parameters((VOCAB_SIZE_EN))
 
     trainer=dy.AdamTrainer(model)
