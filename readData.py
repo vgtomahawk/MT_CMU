@@ -8,9 +8,9 @@ def read_corpus(wids,mode="train",update_dict=True,min_frequency=3,language="en"
     elif mode=="valid":
         fileName="valid.en-de.low."+language
     elif mode=="test":
-        fileName="test.en-de.low"+language
+        fileName="test.en-de.low."+language
     else:
-        fileName="blind.en-de.low"+language
+        fileName="blind.en-de.low."+language
     fileName="en-de/"+fileName
 
     
@@ -35,8 +35,6 @@ def read_corpus(wids,mode="train",update_dict=True,min_frequency=3,language="en"
     for line in open(fileName):
         words=line.split()
         #words.insert(0,"<s>")
-        if len(words)==0:
-            continue
         words.append("</s>")
         sentence=[wids[word] if word in wids else 1 for word in words]    
         sentences.append(sentence)
